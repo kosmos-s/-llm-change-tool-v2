@@ -55,6 +55,9 @@ class MainWindow(ProjectWindow):
         self.review_widget = ReviewWidget()
         self.tabs.addTab(self.review_widget, "이미지 검수")
         self.build_results()
+        from llm_change_tool.ui.analysis_pages import add_pages
+
+        add_pages(self)
 
     def button(self, title, fn, layout):
         button = QPushButton(title)
