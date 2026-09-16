@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# Environment / credentials
+.env
+.env.*
+!.env.example
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Build
+build/
+dist/
+*.egg-info/
+*.spec
+
+# Local project/runtime data
+projects/
+*.llmproj/
+*.db
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
+reviewed/
+exports/
+backups/
+logs/
+cache/
+review_packages/
+
+# Dataset/company data
+dataset/
+dataset_sample/
+data/
+*.jpg
+*.jpeg
+*.png
+*.tif
+*.tiff
+*.shp
+*.shx
+*.dbf
