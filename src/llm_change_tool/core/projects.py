@@ -113,3 +113,21 @@ def diagnose_project(path: Path) -> dict:
         if row is None:
             raise DatabaseError("프로젝트 정보가 없습니다.")
         return {"project_id": row[0], "schema_version": version, "integrity": integrity}
+
+
+def restore_project(backup: Path, destination: Path) -> Project:
+    """Restore a validated SQLite backup into a new folder only."""
+    with connect(backup, readonly=True) as con:
+        validate(con)
+        if con.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+            raise DatabaseError("Backup integrity check failed")
+    root = local_path(destination)
+    root.mkdir(exist_ok=False)
+    try:
+        backup_database(backup, root / DB_NAME)
+        for name in ("backups", "exports", "logs"):
+            (root / name).mkdir()
+        return open_project(root)
+    except Exception:
+        shutil.rmtree(root)
+        raise
