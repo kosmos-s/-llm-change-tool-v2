@@ -1,0 +1,16 @@
+{
+  "version": "1", "guideline": "26.03.24",
+  "labels": [
+    {"key":"arti","title":"인공물","path":["Artifact"]},
+    {"key":"arti_bu","title":"건물","path":["artifact_detail","arti_bu"],"parent":"arti"},
+    {"key":"arti_bu_t","title":"건물 기울임","path":["artifact_detail","arti_bu_t"],"parent":"arti"},
+    {"key":"arti_binil","title":"온실","path":["artifact_detail","arti_binil"],"parent":"arti"},
+    {"key":"arti_road","title":"도로","path":["artifact_detail","arti_road"],"parent":"arti"},
+    {"key":"arti_roa_m","title":"도로 표식 (신규 제외)","path":["artifact_detail","arti_roa_m"],"parent":"arti","fixed":0},
+    {"key":"arti_other","title":"기타 인공물","path":["artifact_detail","arti_other"],"parent":"arti"},
+    {"key":"tree","title":"나무","path":["Tree"]},
+    {"key":"fore","title":"산림","path":["forest"]},
+    {"key":"farm","title":"농경지","path":["farmland"]},
+    {"key":"water","title":"수계","path":["water"]}
+  ]
+}

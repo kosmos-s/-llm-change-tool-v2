@@ -90,11 +90,11 @@ def test_migration_is_idempotent_and_failure_rolls_back(tmp_path, monkeypatch):
     project = create_project(tmp_path / "project", "test")
     with database.connect(project.database) as con:
         database.migrate(con, timestamp="now")
-        assert con.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 1
-        monkeypatch.setattr(database, "SCHEMA_VERSION", 2)
+        assert con.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 2
+        monkeypatch.setattr(database, "SCHEMA_VERSION", 3)
         monkeypatch.setitem(
             database.MIGRATIONS,
-            2,
+            3,
             (
                 "CREATE TABLE should_rollback (id INTEGER)",
                 "INVALID SQL",
@@ -102,7 +102,7 @@ def test_migration_is_idempotent_and_failure_rolls_back(tmp_path, monkeypatch):
         )
         with pytest.raises(sqlite3.OperationalError):
             database.migrate(con, timestamp="now")
-        assert con.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert con.execute("PRAGMA user_version").fetchone()[0] == 2
         assert (
             con.execute("SELECT name FROM sqlite_master WHERE name = 'should_rollback'").fetchone()
             is None
