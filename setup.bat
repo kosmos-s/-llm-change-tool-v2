@@ -4,7 +4,7 @@ cd /d "%~dp0"
 if exist ".venv\Scripts\python.exe" goto install
 where py >nul 2>nul
 if errorlevel 1 goto python_fallback
-py -3.12 -m venv .venv
+py -3.11 -m venv .venv
 if not errorlevel 1 goto install
 :python_fallback
 python -c "import sys; assert (3,11) <= sys.version_info[:2] < (3,14)" >nul 2>nul
@@ -20,7 +20,7 @@ echo Setup complete. Run run.bat to start.
 pause
 exit /b 0
 :missing_python
-echo Install Python 3.12 for Windows with Add Python to PATH enabled.
+echo Install Python 3.11 for Windows with Add Python to PATH enabled.
 :failed
 echo Setup failed. Check the error above.
 pause

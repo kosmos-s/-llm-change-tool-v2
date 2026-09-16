@@ -166,6 +166,8 @@ class MainWindow(ProjectWindow):
         self.tabs.addTab(page, "품질 · Export")
 
     def set_project(self, project):
+        if hasattr(self, "review_widget") and not self.review_widget.bind(None, None):
+            return
         super().set_project(project)
         if hasattr(self, "jobs"):
             self.job_id = None
@@ -182,6 +184,7 @@ class MainWindow(ProjectWindow):
         self.active_task = Task(function, self)
         for button in self.pipeline_buttons:
             button.setEnabled(False)
+        self.tabs.setTabEnabled(2, False)
         self.new_button.setEnabled(False)
         self.open_button.setEnabled(False)
         self.jobs.setEnabled(False)
@@ -204,6 +207,7 @@ class MainWindow(ProjectWindow):
     def task_finished(self):
         for button in self.pipeline_buttons:
             button.setEnabled(True)
+        self.tabs.setTabEnabled(2, True)
         self.new_button.setEnabled(True)
         self.open_button.setEnabled(True)
         self.jobs.setEnabled(True)
@@ -255,14 +259,20 @@ class MainWindow(ProjectWindow):
     def select_job(self, *args):
         if not self.project:
             return
-        self.job_id = self.jobs.currentData()
-        if self.job_id:
+        candidate = self.jobs.currentData()
+        if candidate:
             with transaction(self.project) as con:
-                self.run_id = one(con, "SELECT run_id FROM jobs WHERE id=:id", id=self.job_id)[
-                    "run_id"
-                ]
+                run_id = one(con, "SELECT run_id FROM jobs WHERE id=:id", id=candidate)["run_id"]
+            if not self.review_widget.bind(self.project, run_id):
+                self.jobs.blockSignals(True)
+                self.jobs.setCurrentIndex(self.jobs.findData(self.job_id))
+                self.jobs.blockSignals(False)
+                return
+            self.job_id, self.run_id = candidate, run_id
             self.show_progress(job_info(self.project, self.job_id))
-            self.review_widget.bind(self.project, self.run_id)
+        else:
+            self.job_id = self.run_id = None
+            self.review_widget.bind(None, None)
 
     def start_job(self):
         if not self.job_id:

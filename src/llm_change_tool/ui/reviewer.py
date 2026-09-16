@@ -159,10 +159,18 @@ class ReviewWidget(QWidget):
 
     def bind(self, project, run_id):
         if self.task and self.task.isRunning():
-            return
+            return False
+        if not self.flush():
+            return False
         self.project = project
         self.run_id = run_id
-        self.reload()
+        self.items = []
+        self.index = 0
+        if project and run_id:
+            self.reload()
+        else:
+            self.load_current()
+        return True
 
     def flush(self):
         if self.dirty:
@@ -198,6 +206,13 @@ class ReviewWidget(QWidget):
             button.setEnabled(bool(self.items))
         if not self.items:
             self.identity.setText("해당 조건의 검수 항목이 없습니다.")
+            self.images = None
+            self.left.scene().clear()
+            self.right.scene().clear()
+            self.ai_reason.clear()
+            self.reason.clear()
+            for box in self.boxes.values():
+                box.setChecked(False)
             self.progress.setText("0 / 0")
             self.loading = False
             self.dirty = False
@@ -232,6 +247,8 @@ class ReviewWidget(QWidget):
             diff = ImageChops.difference(left, right)
             return [(im.tobytes(), im.width, im.height) for im in (left, right, diff)]
 
+        if self.task:
+            self.task.deleteLater()
         self.task = Task(load, self)
         self.task.done.connect(self.images_loaded)
         self.task.failed.connect(lambda message: self.status.setText("이미지 오류: " + message))

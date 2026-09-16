@@ -25,3 +25,7 @@ backups/
 *.tif
 *.tiff
 .DS_Store
+!.env.example
+reviewed/
+exports/
+*.db-journal

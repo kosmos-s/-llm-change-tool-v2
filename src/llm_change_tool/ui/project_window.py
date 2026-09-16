@@ -56,7 +56,7 @@ class MainWindow(QMainWindow):
         self.worker_timer = QTimer(self)
         self.worker_timer.setSingleShot(True)
         self.worker_timer.timeout.connect(self._worker_timeout)
-        self.setWindowTitle("LLM Change Tool v2 · Phase 0")
+        self.setWindowTitle("LLM Change Tool v2 · v2")
         self.resize(1060, 740)
         self.setMinimumSize(880, 660)
         self.setStyleSheet(STYLE)
@@ -85,7 +85,7 @@ class MainWindow(QMainWindow):
 
         main = QVBoxLayout()
         main.setSpacing(16)
-        main.addWidget(label("PHASE 0  ·  프로젝트 기반", "badge"))
+        main.addWidget(label("LOCAL FIRST  ·  프로젝트", "badge"))
         main.addWidget(label("작업 공간을 준비하세요", "title"))
         main.addWidget(label("프로젝트를 만들거나 이전 작업 폴더를 열어 시작합니다.", "muted"))
         actions = QHBoxLayout()
@@ -131,7 +131,7 @@ class MainWindow(QMainWindow):
         note_layout.addSpacing(8)
         note_layout.addWidget(
             label(
-                "데이터 가져오기, GPT 자동판정, 검수, JSON 내보내기는 후속 단계에서 추가됩니다. "
+                "데이터 · AI 작업 탭에서 Import와 자동판정을 진행하고 이미지 검수 탭에서 최종 라벨을 확정하세요. "
                 "현재 앱 실행에는 API 키가 필요하지 않습니다.",
                 "muted",
             )
@@ -179,7 +179,7 @@ class MainWindow(QMainWindow):
             self._error(exc)
 
     def _open_project(self):
-        path = QFileDialog.getExistingDirectory(self, "project.sqlite3가 있는 작업 폴더 선택")
+        path = QFileDialog.getExistingDirectory(self, "project.db가 있는 작업 폴더 선택")
         if path:
             try:
                 self.set_project(open_project(Path(path)))
@@ -204,7 +204,8 @@ class MainWindow(QMainWindow):
         self.process = QProcess(self)
         self.process.setProgram(sys.executable)
         self.process.setArguments(
-            ["-m", "llm_change_tool.worker", "diagnose", "--project", str(self.project.root)]
+            (["--worker"] if getattr(sys, "frozen", False) else ["-m", "llm_change_tool.worker"])
+            + ["diagnose", "--project", str(self.project.root)]
         )
         self.process.finished.connect(self._worker_finished)
         self.process.errorOccurred.connect(self._worker_error)
@@ -250,7 +251,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent):
         if self.process is not None:
-            # The Phase 0 diagnostic is read-only; stopping cannot lose edits.
+            # The v2 diagnostic is read-only; stopping cannot lose edits.
             self.process.kill()
             self.process.waitForFinished(1000)
         event.accept()

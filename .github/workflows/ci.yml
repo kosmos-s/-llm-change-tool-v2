@@ -1,5 +1,5 @@
-name: Phase 0 checks
-on: [push, pull_request]
+name: Verify and build
+on: [push, pull_request, workflow_dispatch]
 permissions:
   contents: read
 jobs:
@@ -8,7 +8,6 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        python: ['3.11', '3.12', '3.13']
     runs-on: ${{ matrix.os }}
     env:
       QT_QPA_PLATFORM: offscreen
@@ -16,12 +15,42 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python }}
+          python-version: '3.11'
           cache: pip
-      - name: Install Linux Qt runtime dependencies
+      - name: Qt runtime
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libegl1 libopengl0
+      - run: python -m pip install -r requirements-lock.txt
       - run: python -m pip install -e ".[dev]"
+      - run: python scripts/check_secrets.py
+      - run: python -m compileall -q src
       - run: python -m ruff check .
       - run: python -m ruff format --check .
       - run: python -m pytest -q
+      - run: python -m llm_change_tool --self-test
+  windows-portable:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: python -m pip install -r requirements-lock.txt
+      - run: python -m pip install -e . pyinstaller==6.22.3
+      - run: python -m PyInstaller --noconfirm --clean LLMChangeTool.spec
+      - name: Frozen offline end-to-end test
+        shell: pwsh
+        run: |
+          $process = Start-Process -FilePath dist/LLMChangeTool/LLMChangeTool.exe -ArgumentList '--self-test', '--report', 'dist/self-test.json' -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw 'Frozen self-test failed' }
+          $report = Get-Content dist/self-test.json | ConvertFrom-Json
+          if (-not $report.passed) { throw 'Invalid frozen self-test report' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LLMChangeTool-Windows-Portable
+          path: |
+            dist/LLMChangeTool/
+            dist/self-test.json
+          retention-days: 14
