@@ -106,7 +106,7 @@ def effective_doc(raw: bytes, labels: dict, reason: str):
 
 
 class Prediction(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", strict=True)
     labels: dict[str, int]
     confidence: float = Field(ge=0, le=1, allow_inf_nan=False)
     reason: str = Field(min_length=1, max_length=10000)
