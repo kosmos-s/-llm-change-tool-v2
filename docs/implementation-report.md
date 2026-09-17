@@ -28,7 +28,9 @@ Streamlit UI, CSV 중심 상태 관리, checkpoint 파일 재개 방식, 출력 
 
 ## 검증 상태
 
-로컬 Python 3.12 환경에서 pytest, 실제 PySide6 offscreen GUI, 별도 QProcess 점검, Mock end-to-end를 검증합니다. CI는 Python 3.11/Linux·Windows 테스트와 Windows Portable 빌드/동결된 실행 파일의 offline end-to-end를 수행합니다. 최종 실행 결과는 이 문서의 검증 결과 섹션에 기록합니다.
+로컬 Python 3.12 및 GitHub Actions Python 3.11 환경에서 검증합니다. 합성 JPG/JSON과 가짜 HTTP 응답을 사용하며 실제 회사 데이터와 유료 API는 사용하지 않습니다.
+
+최종 코드 기준과 실행 결과는 아래 검증 결과 표에 기록합니다.
 
 ## 알려진 제한 및 실제 사용자 수용 테스트
 
@@ -39,9 +41,36 @@ Streamlit UI, CSV 중심 상태 관리, checkpoint 파일 재개 방식, 출력 
 - 앱 안의 이미지 데이터는 로컬 경로로 읽습니다. 네트워크 마운트 자동 탐지는 완전하지 않습니다.
 - 팀 ZIP은 동일 AI 결과 문맥의 검수 교환용입니다. 독립적으로 재실행한 다른 GPT 결과에 기반한 검수는 stale 검수로 거절합니다.
 - DB/ZIP 암호화, Windows 코드 서명, 자동 업데이트는 포함하지 않았습니다.
+- 대량 AI 작업은 영속 Job의 순차 처리입니다. OpenAI 서버의 비동기 Batch API는 아직 연결하지 않았습니다.
+- split 누출 검사는 동일 이미지 바이트 SHA256 기준입니다. 재인코딩된 동일 장소나 인접 타일의 공간적 누출까지 검출하지는 않습니다.
+- 사용자가 만든 Golden Set은 현재 Run의 완료 검수 전체를 고정합니다. 소규모 전용 프로젝트로 reference set을 구성할 수 있습니다.
+- Export 파일과 SQLite는 하나의 분산 transaction이 아닙니다. 폴더 확정 직후 OS가 중단되면 manifest가 있는 완료 폴더와 DB snapshot 목록이 다를 수 있습니다. `.incomplete-*` 폴더는 미완료로 취급합니다.
 - 이미지 opacity slider는 제공하지 않습니다. 동기화 pan/zoom, difference와 flicker를 제공합니다.
 - 모델 학습을 실행하는 도구는 아닙니다. 실제 Baseline/Retrained 예측 JSON을 받아 평가합니다.
 
 ## 다음 개선 후보
 
 실데이터 adapter 수용 테스트 확장, 이미지 캐시/대형 데이터 페이지 단위 목록, provider-side 비동기 Batch, OS keyring, 선택형 Golden subset UI, 코드 서명/업데이트, 팀 충돌 비교 화면 개선을 고려할 수 있습니다.
+
+## 최종 저장소 점검
+
+| 항목 | 결과 / 처리 |
+|---|---|
+| dead code / TODO / 경로 | 실행 코드의 TODO/FIXME, 개발 환경 절대경로 없음. DB root 외 샘플 경로는 상대경로 |
+| secret / 실데이터 | Git index의 실제 커밋 내용 검사, CI 검사, Windows setup 시 pre-commit hook 설치 |
+| import / 의존성 | compileall, Ruff, 실제 패키지 import, frozen 실행으로 검사 |
+| DB migration | schema 1→2 업그레이드·백업, 잘못된 DB와 미래 버전 거절, 복원 검사 |
+| crash recovery | 프로젝트 OS lock, 중단 항목 UNKNOWN/FAILED, 성공 항목 중복 호출 방지 검사 |
+| stale state | 원본/Run/Compare/review hash binding, revision 충돌, 프로젝트 전환 시 검수 문맥 초기화 |
+| Export | 필수 검수 누락/보류/변조/Compare 누락 차단, 디스크 쓰기 실패 시 최종 폴더 미생성 |
+| Windows | 한글·공백 경로 테스트, console 없는 EXE에서 결과 파일로 별도 worker 통신 |
+| 배포 | PyInstaller 리소스 포함, frozen Core self-test 및 GUI/worker smoke |
+
+## 사용자 PC에서 확인할 순서
+
+1. Portable ZIP 전체를 풀고 `LLMChangeTool.exe` 실행, 새 프로젝트 생성/백업/복원.
+2. 허가된 소량 실제 데이터로 Import 결과와 원본 엘컴텍 JSON round-trip 확인.
+3. 이미지 시점·화질·동기화 zoom/pan·한글 입력·자동 임시 저장/완료 저장 확인.
+4. 단가를 확인한 소량 OpenAI pilot, timeout/일시정지/종료 후 재개 확인.
+5. 팀원 PC로 백업/검수 ZIP 교환, 경로 재연결 및 충돌 해결 확인.
+6. 소규모 수용 검증 후 errors 각 1,000건의 production 계획으로 진행.

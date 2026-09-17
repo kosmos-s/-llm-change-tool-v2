@@ -9,7 +9,7 @@
 - `worker.py`: 별도 프로세스 DB 점검. 앱 내부 대량 작업은 `ui/tasks.py` QThread에서 같은 Core를 실행합니다.
 - `resources/`: 라벨 스키마와 versioned prompt. 배포 패키지에 함께 포함합니다.
 
-긴 Import/AI/Compare/Gate/Export/ZIP/평가 작업은 UI 스레드 밖에서 실행합니다. Job의 실제 상태는 메모리나 CSV가 아닌 SQLite에 보존됩니다. 프로젝트별 OS 파일 잠금으로 동시에 두 AI worker가 처리하지 못하게 합니다. process가 죽으면 OS가 잠금을 반환하고 recovery가 진행 중 항목을 실패/불명확으로 기록합니다.
+프로젝트 생성/열기/백업/복원 및 긴 Import/AI/Compare/Gate/Export/ZIP/평가 작업은 UI 스레드 밖에서 실행합니다. Job의 실제 상태는 메모리나 CSV가 아닌 SQLite에 보존됩니다. 프로젝트별 OS 파일 잠금으로 동시에 두 AI worker가 처리하지 못하게 합니다. process가 죽으면 OS가 잠금을 반환하고 recovery가 진행 중 항목을 실패/불명확으로 기록합니다.
 
 ## DB 구조 (schema v2)
 
@@ -48,4 +48,4 @@ Review는 DONE/DEFERRED/DRAFT입니다. 자동 저장은 DRAFT이며 완료를 �
 
 Final Gate는 plan·config·source SHA256, AI 성공/오류, Compare 및 review-list 누락, 필수 검수, deferred/draft, 유효 JSON, 팀 충돌을 검사합니다. 검수 불필요 항목만 AUTO_KEEP 원본 fallback이 허용됩니다. 필수 검수를 원본 fallback으로 숨기지 않습니다.
 
-Export는 원본과 분리된 새 폴더에 JSON/JPG/manifest를 씁니다. JSON의 모르는 필드도 유지합니다. 복사한 이미지 해시를 다시 확인합니다. Mock은 pilot 결과만 만들며 production은 정확한 3,000건과 OpenAI coverage를 요구합니다.
+Export는 원본과 분리된 `.incomplete-UUID` 준비 폴더에 JSON/JPG/manifest를 모두 쓴 뒤 최종 폴더명으로 바꿉니다. 처리 오류가 나면 준비 폴더를 제거합니다. OS 강제 종료로 남은 `.incomplete-*` 폴더는 완료 산출물이 아닙니다. JSON의 모르는 필드도 유지합니다. 복사한 이미지 해시를 다시 확인합니다. Mock은 pilot 결과만 만들며 production은 정확한 3,000건과 OpenAI coverage를 요구합니다.
