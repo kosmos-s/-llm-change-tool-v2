@@ -143,7 +143,10 @@ def export_run(project, run_id, destination: Path | None = None):
             if destination.is_relative_to(source) or source.is_relative_to(destination):
                 raise ValueError("Export destination overlaps original dataset")
             destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.mkdir(exist_ok=False)
+            if destination.exists():
+                raise FileExistsError(destination)
+            staging = destination.parent / f".incomplete-{sid}"
+            staging.mkdir(exist_ok=False)
             try:
                 entries = []
                 for sample, review, doc in effective:
@@ -151,7 +154,7 @@ def export_run(project, run_id, destination: Path | None = None):
                     hashes = json.loads(sample["hashes"])
                     file_hashes = {}
                     for role, relative in paths.items():
-                        output = safe_path(destination, relative)
+                        output = safe_path(staging, relative)
                         output.parent.mkdir(parents=True, exist_ok=True)
                         if role == "json":
                             raw = (
@@ -190,7 +193,10 @@ def export_run(project, run_id, destination: Path | None = None):
                     "gate": gate,
                     "samples": entries,
                 }
-                (destination / "manifest.json").write_text(canonical(manifest), encoding="utf-8")
+                (staging / "manifest.json").write_text(canonical(manifest), encoding="utf-8")
+                if destination.exists():
+                    raise FileExistsError(destination)
+                staging.rename(destination)
                 execute(
                     con,
                     "INSERT INTO snapshots VALUES (:id,:run,:manifest,:time)",
@@ -200,6 +206,6 @@ def export_run(project, run_id, destination: Path | None = None):
                     time=now(),
                 )
             except Exception:
-                shutil.rmtree(destination)
+                shutil.rmtree(staging, ignore_errors=True)
                 raise
         return {"path": str(destination), "samples": len(effective), "mode": plan["mode"]}

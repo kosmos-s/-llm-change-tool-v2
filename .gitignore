@@ -29,3 +29,4 @@ backups/
 reviewed/
 exports/
 *.db-journal
+demo-data/

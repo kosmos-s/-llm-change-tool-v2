@@ -139,3 +139,31 @@ def test_worker_protocol_success_and_failure(tmp_path):
     failure = subprocess.run(command + [str(tmp_path / "missing")], capture_output=True, timeout=10)
     assert failure.returncode == 1
     assert json.loads(failure.stdout)["type"] == "failed"
+
+
+def test_worker_file_protocol_without_console(tmp_path, monkeypatch):
+    import llm_change_tool.worker as worker
+    from llm_change_tool.worker import main
+
+    project = create_project(tmp_path / "project", "test")
+    output = tmp_path / "response.json"
+    monkeypatch.setattr(worker.sys, "stdout", None)
+    assert main(["diagnose", "--project", str(project.root), "--output", str(output)]) == 0
+    assert json.loads(output.read_text())["type"] == "completed"
+
+
+def test_actual_schema_one_upgrade_creates_backup(tmp_path, monkeypatch):
+    root = tmp_path / "old project"
+    root.mkdir()
+    with monkeypatch.context() as scope:
+        scope.setattr(database, "SCHEMA_VERSION", 1)
+        with database.connect(root / DB_NAME, create=True) as con:
+            database.migrate(con, timestamp="before", new=True)
+            con.execute("INSERT INTO project VALUES (1,'stable-id','legacy','before','0.1.0')")
+            con.commit()
+    upgraded = open_project(root)
+    assert upgraded.project_id == "stable-id"
+    assert list((root / "backups").glob("*.sqlite3"))
+    with database.connect(upgraded.database) as con:
+        assert con.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert con.execute("SELECT count(*) FROM samples").fetchone()[0] == 0

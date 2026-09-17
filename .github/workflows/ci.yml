@@ -47,10 +47,20 @@ jobs:
           if ($process.ExitCode -ne 0) { throw 'Frozen self-test failed' }
           $report = Get-Content dist/self-test.json | ConvertFrom-Json
           if (-not $report.passed) { throw 'Invalid frozen self-test report' }
+      - name: Frozen GUI and worker test
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          $process = Start-Process -FilePath dist/LLMChangeTool/LLMChangeTool.exe -ArgumentList '--gui-smoke', '--report', 'dist/gui-smoke.json' -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw 'Frozen GUI test failed' }
+          $report = Get-Content dist/gui-smoke.json | ConvertFrom-Json
+          if (-not $report.passed) { throw 'Invalid frozen GUI report' }
       - uses: actions/upload-artifact@v4
         with:
           name: LLMChangeTool-Windows-Portable
           path: |
             dist/LLMChangeTool/
             dist/self-test.json
+            dist/gui-smoke.json
           retention-days: 14

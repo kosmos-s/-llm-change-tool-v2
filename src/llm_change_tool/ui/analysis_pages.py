@@ -123,21 +123,10 @@ def restore(window):
         return
     parent = QFileDialog.getExistingDirectory(window, "복원할 새 프로젝트의 부모 폴더")
     if parent:
-        # Unlike a normal task, restoration also works before any project is open.
-        if not window.project:
-            try:
-                window.set_project(
-                    restore_project(Path(path), Path(parent) / f"restored-{uuid4().hex[:10]}")
-                )
-            except Exception as exc:
-                window._error(exc)
-        else:
-            window.background(
-                lambda p: restore_project(
-                    Path(path), Path(parent) / f"restored-{uuid4().hex[:10]}"
-                ),
-                window.set_project,
-            )
+        window.perform_project_operation(
+            lambda: restore_project(Path(path), Path(parent) / f"restored-{uuid4().hex[:10]}"),
+            window.set_project,
+        )
 
 
 def new_golden(window):

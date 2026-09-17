@@ -1,5 +1,7 @@
 import json
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 from uuid import uuid4
 
@@ -52,6 +54,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.project: Project | None = None
         self.process: QProcess | None = None
+        self.report_dir = None
         self.worker_timed_out = False
         self.worker_timer = QTimer(self)
         self.worker_timer.setSingleShot(True)
@@ -174,7 +177,7 @@ class MainWindow(QMainWindow):
         try:
             # Human-readable project name stays in DB; folder name is portable.
             path = Path(parent) / f"llm-change-{uuid4().hex[:12]}"
-            self.set_project(create_project(path, name))
+            self.perform_project_operation(lambda: create_project(path, name), self.set_project)
         except Exception as exc:
             self._error(exc)
 
@@ -182,7 +185,7 @@ class MainWindow(QMainWindow):
         path = QFileDialog.getExistingDirectory(self, "project.db가 있는 작업 폴더 선택")
         if path:
             try:
-                self.set_project(open_project(Path(path)))
+                self.perform_project_operation(lambda: open_project(Path(path)), self.set_project)
             except Exception as exc:
                 self._error(exc)
 
@@ -190,8 +193,11 @@ class MainWindow(QMainWindow):
         if self.project is None:
             return
         try:
-            destination = backup_project(self.project)
-            self.result.setText(f"DB 백업 완료\n{destination}")
+            project = self.project
+            self.perform_project_operation(
+                lambda: backup_project(project),
+                lambda destination: self.result.setText(f"DB 백업 완료\n{destination}"),
+            )
         except Exception as exc:
             self._error(exc)
 
@@ -203,9 +209,16 @@ class MainWindow(QMainWindow):
         self.worker_timed_out = False
         self.process = QProcess(self)
         self.process.setProgram(sys.executable)
+        self.report_dir = Path(tempfile.mkdtemp(prefix="llm-change-diagnose-"))
         self.process.setArguments(
             (["--worker"] if getattr(sys, "frozen", False) else ["-m", "llm_change_tool.worker"])
-            + ["diagnose", "--project", str(self.project.root)]
+            + [
+                "diagnose",
+                "--project",
+                str(self.project.root),
+                "--output",
+                str(self.report_dir / "result.json"),
+            ]
         )
         self.process.finished.connect(self._worker_finished)
         self.process.errorOccurred.connect(self._worker_error)
@@ -228,7 +241,7 @@ class MainWindow(QMainWindow):
         try:
             if self.worker_timed_out:
                 raise ValueError("점검 제한시간을 초과했습니다. 다시 시도하세요.")
-            raw = bytes(self.process.readAllStandardOutput()).decode("utf-8")
+            raw = (self.report_dir / "result.json").read_text(encoding="utf-8")
             message = json.loads(raw)
             if exit_code != 0 or exit_status != QProcess.ExitStatus.NormalExit:
                 raise ValueError(message.get("message", "프로젝트 점검에 실패했습니다."))
@@ -237,7 +250,7 @@ class MainWindow(QMainWindow):
             self.result.setText(
                 f"점검 완료 · DB 정상 · 스키마 v{message['result']['schema_version']}"
             )
-        except (ValueError, KeyError, TypeError) as exc:
+        except (OSError, ValueError, KeyError, TypeError) as exc:
             self.result.setText(f"점검 실패: {exc}")
         finally:
             self._cleanup_worker()
@@ -247,6 +260,9 @@ class MainWindow(QMainWindow):
         if self.process:
             self.process.deleteLater()
         self.process = None
+        if self.report_dir:
+            shutil.rmtree(self.report_dir, ignore_errors=True)
+            self.report_dir = None
         self._set_busy(False)
 
     def closeEvent(self, event: QCloseEvent):

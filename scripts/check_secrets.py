@@ -1,5 +1,6 @@
-"""Scan tracked source only; never print secret values in diagnostics."""
+"""Scan the Git index (the content that will actually be committed)."""
 
+import json
 import re
 import subprocess
 from pathlib import Path
@@ -18,19 +19,26 @@ def main():
     for raw in paths:
         if not raw:
             continue
-        path = Path(raw.decode())
-        if not path.is_file():
-            continue
+        name = raw.decode()
+        path = Path(name)
         if path.suffix.lower() in FORBIDDEN or (
             path.name.startswith(".env") and path.name != ".env.example"
         ):
-            errors.append(str(path) + ": forbidden data/credential file")
+            errors.append(name + ": forbidden data/credential file")
             continue
-        if path.stat().st_size > 5_000_000:
-            errors.append(str(path) + ": unexpected large source file")
+        data = subprocess.check_output(["git", "show", ":" + name])
+        if len(data) > 5_000_000:
+            errors.append(name + ": unexpected large source file")
             continue
-        if any(pattern.search(path.read_bytes()) for pattern in PATTERNS):
-            errors.append(str(path) + ": possible credential (value suppressed)")
+        if any(pattern.search(data) for pattern in PATTERNS):
+            errors.append(name + ": possible credential (value suppressed)")
+        if path.suffix.lower() == ".json":
+            try:
+                doc = json.loads(data)
+                if isinstance(doc, dict) and "Artifact" in doc and "artifact_detail" in doc:
+                    errors.append(name + ": possible dataset label JSON")
+            except (ValueError, UnicodeDecodeError):
+                pass
     if errors:
         raise SystemExit("\n".join(errors))
     print("Secret/data scan passed")

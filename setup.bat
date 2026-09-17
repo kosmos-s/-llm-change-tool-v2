@@ -16,6 +16,7 @@ if errorlevel 1 goto failed
 if errorlevel 1 goto failed
 ".venv\Scripts\python.exe" -m pip install --no-deps -e .
 if errorlevel 1 goto failed
+if exist ".git" git config core.hooksPath .githooks
 echo Setup complete. Run run.bat to start.
 pause
 exit /b 0

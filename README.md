@@ -26,7 +26,7 @@ cd ./-llm-change-tool-v2
 5. **Compare + 검수 목록** → **이미지 검수**에서 검수자 이름을 입력하고 라벨을 확정합니다. 자동 저장은 임시 저장이며, `저장`이 완료 판정입니다.
 6. **품질 · Export**: Final Gate 통과 후 JPG/JSON을 내보냅니다. 시험용 출력은 manifest에 `pilot`, 본작업 출력은 `production`으로 구분됩니다.
 7. 팀 검수 결과는 **팀 작업 · 복원**에서 ZIP으로 교환하고 충돌을 해결합니다.
-8. **통계 · 평가**에서 작업 현황, GPT↔Human 지표, Golden Dataset, Baseline/Retained 모델 평가를 확인합니다.
+8. **통계 · 평가**에서 작업 현황, GPT↔Human 지표, Golden Dataset, Baseline/Retrained 모델 평가를 확인합니다.
 
 처음부터 시험할 데이터가 없다면:
 

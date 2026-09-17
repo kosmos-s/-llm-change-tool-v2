@@ -174,19 +174,23 @@ class MainWindow(ProjectWindow):
             self.run_id = None
             self.refresh_jobs()
 
-    def background(self, function, after=None):
-        if not self.project:
+    def perform_project_operation(self, function, after):
+        self.background(lambda progress: function(), after, require_project=False)
+
+    def background(self, function, after=None, *, require_project=True):
+        if require_project and not self.project:
             return self._error(ValueError("프로젝트를 먼저 여세요."))
-        if self.active_task and self.active_task.isRunning():
+        if self.process is not None or (self.active_task and self.active_task.isRunning()):
             return
         if not self.review_widget.flush():
             return
+        if self.active_task:
+            self.active_task.deleteLater()
         self.active_task = Task(function, self)
         for button in self.pipeline_buttons:
             button.setEnabled(False)
         self.tabs.setTabEnabled(2, False)
-        self.new_button.setEnabled(False)
-        self.open_button.setEnabled(False)
+        self._set_busy(True)
         self.jobs.setEnabled(False)
         self.active_task.progress.connect(self.show_progress)
         self.active_task.done.connect(lambda value: self.task_done(value, after))
@@ -208,8 +212,7 @@ class MainWindow(ProjectWindow):
         for button in self.pipeline_buttons:
             button.setEnabled(True)
         self.tabs.setTabEnabled(2, True)
-        self.new_button.setEnabled(True)
-        self.open_button.setEnabled(True)
+        self._set_busy(False)
         self.jobs.setEnabled(True)
 
     def choose_import(self):

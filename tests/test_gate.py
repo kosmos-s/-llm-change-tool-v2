@@ -66,3 +66,21 @@ def test_missing_compare_and_modified_source_block(imported):
     p = next(root.rglob("*.jpg"))
     p.write_bytes(p.read_bytes() + b"changed")
     assert not final_gate(project, run)["passed"]
+
+
+def test_export_failure_leaves_no_final_folder(imported, tmp_path, monkeypatch):
+    import llm_change_tool.core.exporting as exporting
+
+    project, _ = imported
+    run = prepared(project)
+    approve(project, run)
+
+    def fail(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(exporting.shutil, "copyfile", fail)
+    target = tmp_path / "final-output"
+    with pytest.raises(OSError, match="disk full"):
+        export_run(project, run, target)
+    assert not target.exists()
+    assert not list(tmp_path.glob(".incomplete-*"))

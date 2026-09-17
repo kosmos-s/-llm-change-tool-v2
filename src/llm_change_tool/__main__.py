@@ -12,15 +12,21 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="LLM Change Tool v2")
     parser.add_argument("--project", type=Path, help="기존 프로젝트 폴더")
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--gui-smoke", action="store_true")
     parser.add_argument("--report", type=Path)
     args = parser.parse_args(arguments)
-    if args.self_test:
+    if args.self_test or args.gui_smoke:
         import json
 
         from llm_change_tool.core.demo import self_test
 
         try:
-            result = self_test()
+            if args.gui_smoke:
+                from llm_change_tool.ui.smoke import gui_smoke
+
+                result = gui_smoke()
+            else:
+                result = self_test()
             code = 0
         except Exception as exc:
             result = {"passed": False, "error": str(exc)}

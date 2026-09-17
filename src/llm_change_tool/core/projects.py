@@ -1,4 +1,4 @@
-"""Project lifecycle; data sources are deliberately outside this Phase 0 API."""
+"""Local project lifecycle and validated backup/restore."""
 
 import shutil
 from dataclasses import dataclass
@@ -70,7 +70,7 @@ def open_project(path: Path) -> Project:
     root = local_path(path)
     db = root / DB_NAME
     if not db.is_file() or db.is_symlink():
-        raise DatabaseError("선택한 폴더에 정상적인 project.sqlite3 파일이 없습니다.")
+        raise DatabaseError("선택한 폴더에 정상적인 project.db 파일이 없습니다.")
     # Check identity, version and integrity read-only before changing anything.
     with connect(db, readonly=True) as con:
         version = validate(con)
