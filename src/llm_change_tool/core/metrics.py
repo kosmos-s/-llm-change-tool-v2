@@ -1,0 +1,248 @@
+"""Separate VLM-vs-human evaluation from baseline/retrained model evaluation."""
+
+import json
+from pathlib import Path
+from uuid import uuid4
+
+from llm_change_tool.core.labels import KEYS, canonical, digest, validate_labels
+from llm_change_tool.core.projects import now
+from llm_change_tool.storage.store import execute, one, rows, transaction
+
+
+def binary_metrics(truth, prediction):
+    if len(truth) != len(prediction) or not truth:
+        raise ValueError("Non-empty equal-size arrays required")
+    if any(type(x) is not int or x not in (0, 1) for x in [*truth, *prediction]):
+        raise ValueError("Binary integer values required")
+    tp = sum(t == 1 and p == 1 for t, p in zip(truth, prediction, strict=True))
+    fp = sum(t == 0 and p == 1 for t, p in zip(truth, prediction, strict=True))
+    fn = sum(t == 1 and p == 0 for t, p in zip(truth, prediction, strict=True))
+    tn = sum(t == 0 and p == 0 for t, p in zip(truth, prediction, strict=True))
+    return {
+        "tp": tp,
+        "fp": fp,
+        "fn": fn,
+        "tn": tn,
+        "precision": tp / (tp + fp) if tp + fp else 0,
+        "recall": tp / (tp + fn) if tp + fn else 0,
+        "f1": 2 * tp / (2 * tp + fp + fn) if 2 * tp + fp + fn else 0,
+        "f2": 5 * tp / (5 * tp + fp + 4 * fn) if 5 * tp + fp + 4 * fn else 0,
+    }
+
+
+def label_metrics(truth, predictions):
+    ids = sorted(set(truth) & set(predictions))
+    return {
+        "coverage": len(ids) / len(truth) if truth else 0,
+        "matched": len(ids),
+        "reference": len(truth),
+        "metrics": {
+            key: binary_metrics([truth[s][key] for s in ids], [predictions[s][key] for s in ids])
+            for key in KEYS
+        }
+        if ids
+        else {},
+    }
+
+
+def dashboard(project, run_id=None):
+    with transaction(project) as con:
+        result = {"sample_total": execute(con, "SELECT count(*) FROM samples").scalar()}
+        if not run_id:
+            return result
+        job = one(con, "SELECT * FROM jobs WHERE run_id=:run", run=run_id)
+        counts = {
+            r["state"]: r["n"]
+            for r in rows(
+                con,
+                "SELECT state,count(*) n FROM job_items WHERE job_id=:job GROUP BY state",
+                job=job["id"],
+            )
+        }
+        result.update(
+            job_state=job["state"],
+            AI_success=counts.get("COMPLETED", 0),
+            AI_failed=counts.get("FAILED", 0),
+            pending=counts.get("PENDING", 0),
+            running=counts.get("RUNNING", 0),
+        )
+        result.update(
+            one(
+                con,
+                """SELECT coalesce(sum(input_tokens),0) input_tokens,
+            coalesce(sum(output_tokens),0) output_tokens,coalesce(sum(charged_cost),0) estimated_cost,
+            coalesce(sum(CASE WHEN state IN ('RUNNING','UNKNOWN') THEN reserved_cost ELSE 0 END),0) unresolved_reserve
+            FROM attempts WHERE job_id=:job""",
+                job=job["id"],
+            )
+        )
+        comps = rows(con, "SELECT * FROM comparisons WHERE run_id=:run", run=run_id)
+        result.update(
+            compare_complete=len(comps), review_required=sum(c["required"] for c in comps)
+        )
+        values = rows(
+            con,
+            """SELECT s.id,s.original_labels,r.prediction,v.labels,v.state FROM samples s
+            JOIN job_items i ON i.sample_id=s.id AND i.job_id=:job
+            LEFT JOIN llm_results r ON r.sample_id=s.id AND r.run_id=:run
+            LEFT JOIN reviews v ON v.revision=(SELECT max(revision) FROM reviews WHERE run_id=:run AND sample_id=s.id)""",
+            job=job["id"],
+            run=run_id,
+        )
+        done = [v for v in values if v["state"] == "DONE"]
+        result["review_completed"] = len(done)
+        result["deferred"] = sum(v["state"] == "DEFERRED" for v in values)
+        result["drafts"] = sum(v["state"] == "DRAFT" for v in values)
+        result["modified"] = sum(
+            json.loads(v["labels"]) != json.loads(v["original_labels"]) for v in done
+        )
+        auto = {c["sample_id"] for c in comps if c["decision"] == "AUTO_KEEP"}
+        result["original_kept"] = (
+            len(done) - result["modified"] + sum(v["id"] in auto and not v["state"] for v in values)
+        )
+        paired = [v for v in done if v["prediction"]]
+        result["GPT_human_agreement"] = (
+            sum(json.loads(v["labels"]) == json.loads(v["prediction"])["labels"] for v in paired)
+            / len(paired)
+            if paired
+            else None
+        )
+        truth = {v["id"]: json.loads(v["labels"]) for v in done}
+        predictions = {v["id"]: json.loads(v["prediction"])["labels"] for v in paired}
+        result["VLM_vs_human"] = label_metrics(truth, predictions)
+        return result
+
+
+def create_golden(project, run_id, name, sample_ids=None):
+    if not name.strip():
+        raise ValueError("Golden set name required")
+    with transaction(project) as con:
+        dataset = one(con, "SELECT * FROM datasets")
+        values = rows(
+            con,
+            """SELECT v.* FROM reviews v JOIN comparisons c ON c.run_id=v.run_id AND c.sample_id=v.sample_id
+            WHERE v.run_id=:run AND v.state='DONE' AND v.result_hash=c.result_hash AND v.revision=(SELECT max(revision) FROM reviews
+            WHERE sample_id=v.sample_id AND run_id=:run) ORDER BY v.sample_id""",
+            run=run_id,
+        )
+        if sample_ids is not None:
+            values = [v for v in values if v["sample_id"] in sample_ids]
+        if not values:
+            raise ValueError("Human-confirmed reviews required")
+        fp = digest(
+            {
+                "dataset": dataset["fingerprint"],
+                "items": [(v["sample_id"], v["labels"], v["revision"]) for v in values],
+            }
+        )
+        gid = str(uuid4())
+        execute(
+            con,
+            "INSERT INTO golden_sets VALUES (:id,:name,:fp,:time)",
+            id=gid,
+            name=name.strip(),
+            fp=fp,
+            time=now(),
+        )
+        for v in values:
+            execute(
+                con,
+                "INSERT INTO golden_items VALUES (:gid,:sid,:labels,:revision)",
+                gid=gid,
+                sid=v["sample_id"],
+                labels=v["labels"],
+                revision=v["revision"],
+            )
+        return {"id": gid, "name": name, "samples": len(values), "fingerprint": fp}
+
+
+def evaluate_golden(project, golden_id):
+    with transaction(project) as con:
+        gold = one(con, "SELECT * FROM golden_sets WHERE id=:id", id=golden_id)
+        truth = {
+            r["sample_id"]: json.loads(r["labels"])
+            for r in rows(con, "SELECT * FROM golden_items WHERE set_id=:id", id=golden_id)
+        }
+        result = []
+        for run in rows(con, "SELECT * FROM llm_runs ORDER BY created_at"):
+            predictions = {
+                r["sample_id"]: json.loads(r["prediction"])["labels"]
+                for r in rows(con, "SELECT * FROM llm_results WHERE run_id=:id", id=run["id"])
+            }
+            result.append(
+                {
+                    "run_id": run["id"],
+                    "model": json.loads(run["config"])["model"],
+                    "provider": json.loads(run["config"])["provider"],
+                    "prompt_hash": run["prompt_hash"],
+                    **label_metrics(truth, predictions),
+                }
+            )
+        return {"golden": gold, "runs": result}
+
+
+def model_evaluation(project, golden_id, name, predictions):
+    if not name.strip():
+        raise ValueError("Model name required")
+    with transaction(project) as con:
+        one(con, "SELECT * FROM golden_sets WHERE id=:id", id=golden_id)
+        truth = {
+            r["sample_id"]: json.loads(r["labels"])
+            for r in rows(con, "SELECT * FROM golden_items WHERE set_id=:id", id=golden_id)
+        }
+        if set(predictions) != set(truth):
+            raise ValueError("Model predictions must cover exactly the golden sample IDs")
+        for labels in predictions.values():
+            validate_labels(labels)
+        report = {
+            "name": name,
+            "kind": "change_detection_model",
+            "golden_id": golden_id,
+            **label_metrics(truth, predictions),
+        }
+        execute(
+            con,
+            "INSERT INTO model_evaluations VALUES (:id,:name,:gold,:payload,:time)",
+            id=str(uuid4()),
+            name=name,
+            gold=golden_id,
+            payload=canonical(report),
+            time=now(),
+        )
+        return report
+
+
+def export_golden_template(project, golden_id):
+    with transaction(project) as con:
+        items = rows(con, "SELECT * FROM golden_items WHERE set_id=:id", id=golden_id)
+        if not items:
+            raise ValueError("Golden set not found")
+        template = {
+            "golden_id": golden_id,
+            "predictions": {i["sample_id"]: dict.fromkeys(KEYS, 0) for i in items},
+        }
+    path = project.root / "exports" / f"model_predictions_{uuid4().hex}.json"
+    path.parent.mkdir(exist_ok=True)
+    with path.open("x", encoding="utf-8") as stream:
+        stream.write(canonical(template))
+    return {
+        "path": str(path),
+        "note": "Replace zero placeholders with actual model predictions before evaluation.",
+    }
+
+
+def import_model_predictions(project, path: Path, name):
+    from llm_change_tool.core.labels import strict_json
+
+    if path.stat().st_size > 20_000_000:
+        raise ValueError("Prediction file too large")
+    data, _ = strict_json(path.read_bytes())
+    return model_evaluation(project, data["golden_id"], name, data["predictions"])
+
+
+def model_comparison(project):
+    with transaction(project) as con:
+        return [
+            json.loads(r["payload"])
+            for r in rows(con, "SELECT * FROM model_evaluations ORDER BY created_at")
+        ]

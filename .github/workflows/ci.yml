@@ -1,0 +1,66 @@
+name: Verify and build
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Qt runtime
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libopengl0
+      - run: python -m pip install -r requirements-lock.txt
+      - run: python -m pip install -e ".[dev]"
+      - run: python scripts/check_secrets.py
+      - run: python -m compileall -q src
+      - run: python -m ruff check .
+      - run: python -m ruff format --check .
+      - run: python -m pytest -q
+      - run: python -m llm_change_tool --self-test
+  windows-portable:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: python -m pip install -r requirements-lock.txt
+      - run: python -m pip install -e . pyinstaller==6.22.3
+      - run: python -m PyInstaller --noconfirm --clean LLMChangeTool.spec
+      - name: Frozen offline end-to-end test
+        shell: pwsh
+        run: |
+          $process = Start-Process -FilePath dist/LLMChangeTool/LLMChangeTool.exe -ArgumentList '--self-test', '--report', 'dist/self-test.json' -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw 'Frozen self-test failed' }
+          $report = Get-Content dist/self-test.json | ConvertFrom-Json
+          if (-not $report.passed) { throw 'Invalid frozen self-test report' }
+      - name: Frozen GUI and worker test
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          $process = Start-Process -FilePath dist/LLMChangeTool/LLMChangeTool.exe -ArgumentList '--gui-smoke', '--report', 'dist/gui-smoke.json' -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw 'Frozen GUI test failed' }
+          $report = Get-Content dist/gui-smoke.json | ConvertFrom-Json
+          if (-not $report.passed) { throw 'Invalid frozen GUI report' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LLMChangeTool-Windows-Portable
+          path: |
+            dist/LLMChangeTool/
+            dist/self-test.json
+            dist/gui-smoke.json
+          retention-days: 14
