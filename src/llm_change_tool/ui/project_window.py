@@ -9,10 +9,8 @@ from PySide6.QtCore import QProcess, Qt, QTimer
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QFileDialog,
-    QFrame,
     QHBoxLayout,
     QInputDialog,
-    QLabel,
     QMainWindow,
     QMessageBox,
     QPushButton,
@@ -21,37 +19,15 @@ from PySide6.QtWidgets import (
 )
 
 from llm_change_tool.core.projects import Project, backup_project, create_project, open_project
-
-STYLE = """
-QMainWindow { background: #f4f6fa; }
-QWidget { color: #1d293d; font-size: 14px; }
-QFrame#sidebar { background: #15243a; border-radius: 12px; }
-QFrame#sidebar QLabel { color: #dce6f4; background: transparent; }
-QLabel#brand { font-size: 23px; font-weight: 700; color: white; }
-QLabel#title { font-size: 28px; font-weight: 700; }
-QLabel#muted { color: #58677d; }
-QLabel#badge { color: #087f73; font-weight: 700; }
-QFrame#card { background: white; border: 1px solid #dbe2ec; border-radius: 12px; }
-QPushButton { background: white; border: 1px solid #bac6d5; border-radius: 7px;
-              padding: 10px 16px; }
-QPushButton:hover { background: #e9f0fb; }
-QPushButton:disabled { color: #8a97a8; background: #edf0f5; border-color: #dbe2ec; }
-QPushButton#primary { color: white; background: #2563eb; border: none; }
-QPushButton#primary:hover { background: #1d4ed8; }
-"""
-
-
-def label(text: str, name: str = "") -> QLabel:
-    result = QLabel(text)
-    result.setTextFormat(Qt.TextFormat.PlainText)
-    result.setWordWrap(True)
-    result.setObjectName(name)
-    return result
+from llm_change_tool.ui.components import card, role
+from llm_change_tool.ui.components import text_label as label
+from llm_change_tool.ui.theme import apply_theme
 
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        apply_theme()
         self.project: Project | None = None
         self.process: QProcess | None = None
         self.report_dir = None
@@ -59,94 +35,81 @@ class MainWindow(QMainWindow):
         self.worker_timer = QTimer(self)
         self.worker_timer.setSingleShot(True)
         self.worker_timer.timeout.connect(self._worker_timeout)
-        self.setWindowTitle("LLM Change Tool v2 · v2")
-        self.resize(1060, 740)
-        self.setMinimumSize(880, 660)
-        self.setStyleSheet(STYLE)
-
+        self.setMinimumSize(1100, 740)
         central = QWidget()
         self.setCentralWidget(central)
-        layout = QHBoxLayout(central)
-        layout.setContentsMargins(22, 22, 22, 22)
-        layout.setSpacing(24)
-        sidebar = QFrame()
-        sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(220)
-        side = QVBoxLayout(sidebar)
-        side.setContentsMargins(22, 28, 22, 28)
-        side.addWidget(label("LLM Change\nTool v2", "brand"))
-        side.addWidget(label("항공영상 변화탐지\n학습데이터 검수"))
-        side.addSpacing(36)
-        side.addWidget(label("●  프로젝트"))
-        side.addSpacing(20)
-        side.addWidget(
-            label("다음 단계\n\n데이터 가져오기\n자동판정 · 비교\n사람 검수\n최종 데이터 내보내기")
+        layout = QVBoxLayout(central)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(18)
+        self.project_intro = label(
+            "원본은 그대로, 검수 결과는 안전하게. 프로젝트를 선택하고 작업을 시작하세요.", "muted"
         )
-        side.addStretch()
-        side.addWidget(label("LOCAL FIRST\n내 PC에 저장되는 작업 공간"))
-        layout.addWidget(sidebar)
-
-        main = QVBoxLayout()
-        main.setSpacing(16)
-        main.addWidget(label("LOCAL FIRST  ·  프로젝트", "badge"))
-        main.addWidget(label("작업 공간을 준비하세요", "title"))
-        main.addWidget(label("프로젝트를 만들거나 이전 작업 폴더를 열어 시작합니다.", "muted"))
+        layout.addWidget(self.project_intro)
         actions = QHBoxLayout()
-        self.new_button = QPushButton("새 프로젝트")
-        self.new_button.setObjectName("primary")
-        self.new_button.clicked.connect(self._new_project)
-        self.open_button = QPushButton("프로젝트 열기")
-        self.open_button.clicked.connect(self._open_project)
-        actions.addWidget(self.new_button)
-        actions.addWidget(self.open_button)
-        actions.addStretch()
-        main.addLayout(actions)
-
-        card = QFrame()
-        card.setObjectName("card")
-        details = QVBoxLayout(card)
-        details.setContentsMargins(24, 22, 24, 22)
-        details.setSpacing(14)
-        self.project_name = label("열린 프로젝트 없음", "title")
-        self.project_details = label("새 프로젝트를 만들면 로컬 작업 DB가 준비됩니다.", "muted")
+        for title, hint, button_title, method, name in [
+            (
+                "새 작업 시작",
+                "작업 상태와 검수 이력을 저장할 로컬 프로젝트를 만듭니다.",
+                "＋  새 프로젝트",
+                self._new_project,
+                "new_button",
+            ),
+            (
+                "이전 작업 이어가기",
+                "저장해 둔 프로젝트를 열어 마지막 작업을 이어갑니다.",
+                "프로젝트 열기",
+                self._open_project,
+                "open_button",
+            ),
+        ]:
+            frame, content = card(title, hint)
+            button = QPushButton(button_title)
+            button.clicked.connect(method)
+            if name == "new_button":
+                role(button, "primary")
+            setattr(self, name, button)
+            content.addWidget(button)
+            actions.addWidget(frame)
+        layout.addLayout(actions)
+        frame, details = card("현재 프로젝트")
+        self.project_name = label("아직 프로젝트를 선택하지 않았습니다.", "sectionTitle")
+        self.project_details = label("위에서 새로 만들거나 기존 프로젝트를 열어 주세요.", "muted")
         self.project_details.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         details.addWidget(self.project_name)
         details.addWidget(self.project_details)
-        detail_actions = QHBoxLayout()
+        row = QHBoxLayout()
         self.diagnose_button = QPushButton("프로젝트 점검")
         self.diagnose_button.clicked.connect(self.start_diagnosis)
-        self.backup_button = QPushButton("DB 백업")
+        self.backup_button = QPushButton("안전하게 백업")
         self.backup_button.clicked.connect(self._backup)
-        detail_actions.addWidget(self.diagnose_button)
-        detail_actions.addWidget(self.backup_button)
-        detail_actions.addStretch()
-        details.addLayout(detail_actions)
-        self.result = label("프로젝트를 열면 점검과 백업을 사용할 수 있습니다.", "muted")
+        row.addWidget(self.diagnose_button)
+        row.addWidget(self.backup_button)
+        row.addStretch()
+        details.addLayout(row)
+        self.result = label(
+            "백업에는 작업 DB가 저장됩니다. 원본 데이터는 별도로 보관하세요.", "muted"
+        )
         details.addWidget(self.result)
-        main.addWidget(card)
-
-        note = QFrame()
-        note.setObjectName("card")
-        note_layout = QVBoxLayout(note)
-        note_layout.setContentsMargins(24, 20, 24, 20)
-        note_layout.addWidget(label("현재 가능한 작업", "badge"))
-        note_layout.addWidget(label("프로젝트 생성 · 다시 열기 · 작업 DB 점검 · DB 백업"))
-        note_layout.addSpacing(8)
-        note_layout.addWidget(
-            label(
-                "데이터 · AI 작업 탭에서 Import와 자동판정을 진행하고 이미지 검수 탭에서 최종 라벨을 확정하세요. "
-                "현재 앱 실행에는 API 키가 필요하지 않습니다.",
-                "muted",
-            )
+        layout.addWidget(frame)
+        frame, content = card(
+            "이 순서로 진행하세요", "왼쪽 메뉴에서 언제든 원하는 단계로 이동할 수 있습니다."
         )
-        main.addWidget(note)
-        main.addStretch()
-        main.addWidget(
-            label(
-                "원본 JSON 유지  ·  중앙 서버 없이 작업  ·  프로젝트 폴더는 로컬 디스크에", "muted"
-            )
-        )
-        layout.addLayout(main, 1)
+        row = QHBoxLayout()
+        for number, title, hint, index in [
+            ("01", "데이터 · AI 분석", "폴더 가져오기와 자동 판정", 1),
+            ("02", "이미지 검수", "두 시점을 보고 라벨 확정", 2),
+            ("03", "품질 · 내보내기", "누락 확인 후 최종 결과 저장", 3),
+        ]:
+            col = QVBoxLayout()
+            col.addWidget(label(number, "eyebrow"))
+            button = role(QPushButton(title + "  →"), "link")
+            button.clicked.connect(lambda checked=False, i=index: self.navigate(i))
+            col.addWidget(button)
+            col.addWidget(label(hint, "muted"))
+            row.addLayout(col, 1)
+        content.addLayout(row)
+        layout.addWidget(frame)
+        layout.addStretch()
         self._set_busy(False)
 
     def _set_busy(self, busy: bool):

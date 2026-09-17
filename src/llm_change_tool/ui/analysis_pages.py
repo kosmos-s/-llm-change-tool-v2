@@ -9,7 +9,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
     QMessageBox,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -30,60 +29,100 @@ from llm_change_tool.core.metrics import (
 )
 from llm_change_tool.core.projects import restore_project
 from llm_change_tool.storage.store import rows, transaction
+from llm_change_tool.ui.components import DashboardPanel, ResultPanel, card, scroll_page, text_label
 
 
 def add_pages(window):
     team = QWidget()
     layout = QVBoxLayout(team)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(18)
+    frame, content = card(
+        "검수 결과 주고받기",
+        "같은 데이터 · 작업 계획 · AI 결과를 사용하는 팀원과 검수 ZIP을 교환합니다.",
+    )
     bar = QHBoxLayout()
     window.button(
         "검수 ZIP 내보내기",
         lambda: window.background(lambda p: export_reviews(window.project, window.run_id)),
         bar,
+        primary=True,
+        requires="run",
     )
-    window.button("검수 ZIP 가져오기", lambda: choose_zip(window), bar)
-    window.button("충돌 해결", lambda: resolve_next(window), bar)
-    window.button("백업에서 새 프로젝트 복원", lambda: restore(window), bar)
-    layout.addLayout(bar)
-    description = QTextEdit()
-    description.setReadOnly(True)
-    description.setPlainText(
-        "동일 프로젝트 데이터와 작업 계획, Run 설정을 사용하는 팀원끼리 교환합니다.\n팀원에게 프로젝트 DB 백업을 전달하고, 팀원 PC에서 데이터 루트를 다시 Import하면 상대경로로 연결됩니다.\nZIP은 NEW / SAME / CONFLICT로 구분하며 CONFLICT는 자동 덮어쓰지 않습니다.\n원본 이미지와 API Key는 ZIP에 포함되지 않습니다.\n처리 결과는 데이터 · AI 작업 탭과 품질 · Export 탭에서 확인합니다."
+    window.button("검수 ZIP 가져오기", lambda: choose_zip(window), bar, requires="run")
+    window.button("충돌 확인 · 해결", lambda: resolve_next(window), bar, requires="run")
+    bar.addStretch()
+    content.addLayout(bar)
+    content.addWidget(
+        text_label(
+            "새 결과는 반영하고, 동일한 결과는 유지합니다. 서로 다른 결정은 충돌로 표시하며 직접 선택해야 반영됩니다.",
+            "muted",
+        )
     )
-    layout.addWidget(description)
-    window.tabs.addTab(team, "팀 작업 · 복원")
+    layout.addWidget(frame)
+    frame, content = card(
+        "백업에서 작업 이어가기",
+        "팀원에게 받은 DB 백업이나 내 백업을 새 프로젝트 폴더로 복원합니다.",
+    )
+    bar = QHBoxLayout()
+    window.button("DB 백업 복원", lambda: restore(window), bar, requires=None)
+    bar.addWidget(text_label("기존 프로젝트를 덮어쓰지 않습니다.", "muted"), 1)
+    content.addLayout(bar)
+    content.addWidget(
+        text_label(
+            "복원 후 ‘데이터 · AI 분석’에서 같은 데이터 폴더를 다시 선택하면 현재 PC의 경로로 연결됩니다. 검수 ZIP에는 이미지와 API Key가 포함되지 않습니다.",
+            "muted",
+        )
+    )
+    layout.addWidget(frame)
+    window.team_result = ResultPanel("검수 ZIP 교환과 복원 결과가 여기에 표시됩니다.")
+    layout.addWidget(window.team_result)
+    layout.addStretch()
+    window.tabs.addTab(scroll_page(team), "팀 작업 · 복원")
     stats = QWidget()
     layout = QVBoxLayout(stats)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(18)
     bar = QHBoxLayout()
+    bar.addWidget(text_label("선택한 작업의 진행 현황", "sectionTitle"), 1)
     window.button(
-        "통계 새로고침",
-        lambda: window.background(
-            lambda p: dashboard(window.project, window.run_id), lambda v: display(window, v)
-        ),
+        "현황 새로고침",
+        lambda: window.background(lambda p: dashboard(window.project, window.run_id)),
         bar,
-    )
-    window.button("Golden Set 고정", lambda: new_golden(window), bar)
-    window.button("Golden: 모든 Run 비교", lambda: golden_action(window, "evaluate"), bar)
-    layout.addLayout(bar)
-    bar = QHBoxLayout()
-    window.button("모델 예측 JSON 템플릿", lambda: golden_action(window, "template"), bar)
-    window.button("Baseline / Retrained 예측 가져오기", lambda: model_import(window), bar)
-    window.button(
-        "모델 평가 비교",
-        lambda: window.background(
-            lambda p: model_comparison(window.project), lambda v: display(window, v)
-        ),
-        bar,
+        primary=True,
     )
     layout.addLayout(bar)
-    window.analysis = QTextEdit()
-    window.analysis.setReadOnly(True)
+    window.analysis = DashboardPanel()
     layout.addWidget(window.analysis)
-    window.tabs.addTab(stats, "통계 · 평가")
+    frame, content = card(
+        "기준 데이터 · AI 평가",
+        "사람이 확정한 검수를 Golden Set으로 고정하고, 프롬프트와 모델별 결과를 비교합니다.",
+    )
+    bar = QHBoxLayout()
+    window.button("확정 검수를 기준으로 고정", lambda: new_golden(window), bar, requires="run")
+    window.button("AI 작업별 평가 비교", lambda: golden_action(window, "evaluate"), bar)
+    bar.addStretch()
+    content.addLayout(bar)
+    layout.addWidget(frame)
+    frame, content = card(
+        "변화탐지 모델 평가",
+        "Baseline과 재학습 모델의 예측 파일을 각각 가져와 Precision · Recall · F1 · F2를 비교합니다.",
+    )
+    bar = QHBoxLayout()
+    window.button("1  예측 양식 받기", lambda: golden_action(window, "template"), bar)
+    window.button("2  모델 예측 가져오기", lambda: model_import(window), bar)
+    window.button(
+        "3  평가 결과 비교",
+        lambda: window.background(lambda p: model_comparison(window.project)),
+        bar,
+    )
+    content.addLayout(bar)
+    layout.addWidget(frame)
+    window.tabs.addTab(scroll_page(stats), "통계 · 평가")
 
 
 def display(window, value):
-    window.analysis.setPlainText(json.dumps(value, ensure_ascii=False, indent=2))
+    window.analysis.set_result(value)
 
 
 def choose_zip(window):
@@ -101,10 +140,20 @@ def resolve_next(window):
     conflict = values[0]
     incoming = json.loads(conflict["payload"])
     current = conflict["current"]
+    from llm_change_tool.core.labels import FIELDS
+
+    def selected(labels):
+        if isinstance(labels, str):
+            labels = json.loads(labels)
+        return (
+            ", ".join(field["title"] for field in FIELDS if labels.get(field["key"]))
+            or "모든 라벨 변화 없음"
+        )
+
     dialog = QMessageBox(window)
     dialog.setWindowTitle(f"충돌 해결 · 남은 {len(values)}건")
     dialog.setText(
-        f"샘플 {conflict['sample_id']}\n\n내 결과 ({current['reviewer']})\n{current['labels']}\n{current['reason']}\n\n가져온 결과 ({incoming['reviewer']})\n{json.dumps(incoming['labels'])}\n{incoming['reason']}"
+        f"샘플 {conflict['sample_id']}\n\n내 결과 ({current['reviewer']})\n{selected(current['labels'])}\n{current['reason']}\n\n가져온 결과 ({incoming['reviewer']})\n{selected(incoming['labels'])}\n{incoming['reason']}"
     )
     local = dialog.addButton("내 결과 유지", QMessageBox.ButtonRole.AcceptRole)
     remote = dialog.addButton("가져온 결과 사용", QMessageBox.ButtonRole.DestructiveRole)
