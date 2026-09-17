@@ -30,7 +30,18 @@ Streamlit UI, CSV 중심 상태 관리, checkpoint 파일 재개 방식, 출력 
 
 로컬 Python 3.12 및 GitHub Actions Python 3.11 환경에서 검증합니다. 합성 JPG/JSON과 가짜 HTTP 응답을 사용하며 실제 회사 데이터와 유료 API는 사용하지 않습니다.
 
-최종 코드 기준과 실행 결과는 아래 검증 결과 표에 기록합니다.
+| 검증 | 확인한 결과 |
+|---|---|
+| 로컬 전체 pytest | **38 passed**. 3,003건 중 정확한 3,000건 계획과 SDK transport 검사 포함 |
+| Import 확장성 | 폴더 목록 반복 조회 제거. 같은 로컬 전체 테스트가 **47.23초 → 5.97초**로 단축됨; 실제 대형 JPG 성능 측정은 아님 |
+| compile / Ruff / secret scan | 모두 통과 |
+| 실제 PySide6 UI | Job 생성→Mock 실행→Compare→6건 검수→Gate, 프로젝트 전환/zoom 동기화 통과 |
+| Linux frozen | PyInstaller 빌드, Core self-test, GUI/worker smoke 통과 |
+| Windows/Linux CI | [검증 실행](https://github.com/kosmos-s/-llm-change-tool-v2/actions/runs/35169342036) 성공. 이 실행은 추가 규모/SDK 테스트 전의 33개 pytest 기준 |
+| Windows Portable | 위 실행에서 실제 `LLMChangeTool.exe` 빌드 및 frozen Core/GUI/worker 검사 모두 성공 |
+| 최신 브랜치 CI | [PR #1 Checks](https://github.com/kosmos-s/-llm-change-tool-v2/pull/1/checks)에 이후 38개 테스트와 Import 최적화를 포함한 실행 결과가 기록됨 |
+
+Windows artifact는 성공한 Actions 실행의 `LLMChangeTool-Windows-Portable`에서 받습니다. GitHub artifact 보관 기간은 14일이며, 만료 후 같은 workflow를 다시 실행하거나 `build_windows.bat`으로 빌드할 수 있습니다. 소스·설정·문서는 작업 브랜치와 PR에 보존됩니다.
 
 ## 알려진 제한 및 실제 사용자 수용 테스트
 

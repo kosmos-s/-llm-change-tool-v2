@@ -34,7 +34,18 @@ def scan_dataset(root: Path, progress=lambda value: None):
     if not root.is_dir():
         raise ValueError("Dataset folder not found")
     samples, errors = [], []
-    candidates = sorted(root.rglob("*.json"))
+    all_files = sorted(path for path in root.rglob("*") if path.is_file())
+    candidates = [path for path in all_files if path.suffix.lower() == ".json"]
+    # Build each directory index once. Re-enumerating for every JSON is quadratic
+    # and particularly expensive on Windows for production-sized split folders.
+    directory_files = {}
+    ambiguous_directories = set()
+    for path in all_files:
+        entries = directory_files.setdefault(path.parent, {})
+        name = path.name.casefold()
+        if name in entries:
+            ambiguous_directories.add(path.parent)
+        entries[name] = path
     image_keys, logical_keys, used_images = {}, set(), set()
     for index, path in enumerate(candidates):
         rel = path.relative_to(root).as_posix()
@@ -65,14 +76,16 @@ def scan_dataset(root: Path, progress=lambda value: None):
                 raise ValueError("Duplicate logical key (case-insensitive Windows path)")
             logical_keys.add(key.casefold())
             stem = path.stem.removesuffix("_combined")
-            siblings = {p.name.lower(): p for p in path.parent.iterdir() if p.is_file()}
+            if path.parent in ambiguous_directories:
+                raise ValueError("Case-insensitive filename collision in source directory")
+            siblings = directory_files[path.parent]
 
             def find(name, siblings=siblings):
                 return next(
                     (
-                        siblings.get((name + ext).lower())
+                        siblings.get((name + ext).casefold())
                         for ext in (".jpg", ".jpeg")
-                        if (name + ext).lower() in siblings
+                        if (name + ext).casefold() in siblings
                     ),
                     None,
                 )
@@ -130,8 +143,8 @@ def scan_dataset(root: Path, progress=lambda value: None):
         except Exception as exc:
             errors.append({"path": rel, "error": str(exc)})
         progress({"current": index + 1, "total": len(candidates)})
-    for image in root.rglob("*"):
-        if image.is_file() and image.suffix.lower() in (".jpg", ".jpeg"):
+    for image in all_files:
+        if image.suffix.lower() in (".jpg", ".jpeg"):
             if image.relative_to(root).as_posix() not in used_images:
                 errors.append({"path": image.relative_to(root).as_posix(), "error": "orphan_image"})
     if not samples:
