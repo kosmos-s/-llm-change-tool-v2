@@ -30,3 +30,9 @@ reviewed/
 exports/
 *.db-journal
 demo-data/
+
+artifacts/
+# Only these generated synthetic UI previews are versioned.
+!docs/ui/home.png
+!docs/ui/review.png
+!docs/ui/quality.png

@@ -4,6 +4,8 @@ Local-first Windows 데스크톱 항공영상 변화탐지 학습데이터 검�
 
 **Python 3.11 · PySide6 · SQLAlchemy · SQLite · Pydantic · OpenAI SDK**로 새로 구현했습니다. 중앙 서버나 NAS 상시 연결 없이 내 PC에서 작업합니다. 기존 JPG/JSON을 수정하지 않고, 최종 검수 결과를 기존 엘컴텍 JSON 구조로 별도 내보냅니다.
 
+**0.1.1 UI 개선:** 단계별 왼쪽 메뉴, 선명한 글자와 버튼, 검수 불일치 강조, 요약·표 중심의 결과 화면을 제공합니다. [화면 미리보기](docs/ui-refresh.md)
+
 ## 바로 실행
 
 Windows Portable은 이 저장소의 **Actions → Verify and build → 성공한 실행 → LLMChangeTool-Windows-Portable** artifact에서 받습니다. 압축을 모두 풀고 **LLMChangeTool.exe**를 실행하세요. `_internal` 폴더를 함께 유지해야 합니다. EXE는 코드 서명되지 않았습니다.
@@ -15,18 +17,18 @@ git clone https://github.com/kosmos-s/-llm-change-tool-v2.git
 cd ./-llm-change-tool-v2
 ```
 
-개발 PR을 확인하는 동안에는 `git switch feat/v2-desktop`을 실행합니다. 최초 한 번 `setup.bat`, 이후 `run.bat`으로 시작합니다. 첫 설치에 인터넷이 필요합니다. Mock 검수 흐름에는 API 키가 필요하지 않습니다.
+최초 한 번 `setup.bat`, 이후 `run.bat`으로 시작합니다. 첫 설치에 인터넷이 필요합니다. Mock 검수 흐름에는 API 키가 필요하지 않습니다.
 
 ## 작업 순서
 
 1. **프로젝트**: 새 프로젝트를 로컬 디스크에 생성합니다.
-2. **데이터 · AI 작업**: `train/val/test`를 포함하는 데이터 루트를 Import합니다. 품질 오류가 0인지 확인합니다.
+2. **데이터 · AI 분석**: `train/val/test`를 포함하는 데이터 루트를 Import합니다. 품질 오류가 0인지 확인합니다.
 3. 시험 실행은 `시험용 / mock`, 실제 작업은 `본작업 / openai`를 선택합니다. 본작업은 `errors/train`, `errors/val`, `errors/test`에서 각 1,000건을 정확히 고정합니다.
-4. **계획 고정 + Job 생성** → **실행 / Resume**. OpenAI 사용 시 현재 모델 단가를 입력하고 이미지 전송/유료 호출을 확인합니다.
-5. **Compare + 검수 목록** → **이미지 검수**에서 검수자 이름을 입력하고 라벨을 확정합니다. 자동 저장은 임시 저장이며, `저장`이 완료 판정입니다.
-6. **품질 · Export**: Final Gate 통과 후 JPG/JSON을 내보냅니다. 시험용 출력은 manifest에 `pilot`, 본작업 출력은 `production`으로 구분됩니다.
-7. 팀 검수 결과는 **팀 작업 · 복원**에서 ZIP으로 교환하고 충돌을 해결합니다.
-8. **통계 · 평가**에서 작업 현황, GPT↔Human 지표, Golden Dataset, Baseline/Retrained 모델 평가를 확인합니다.
+4. **이 설정으로 작업 만들기** → **분석 시작 / 이어하기**. OpenAI 사용 시 현재 모델 단가를 입력하고 이미지 전송/유료 호출을 확인합니다.
+5. **비교하고 검수하기** → **이미지 검수**에서 검수자 이름을 입력하고 라벨을 확정합니다. 자동 저장은 임시 저장이며, `저장`이 완료 판정입니다.
+6. **품질 · 내보내기**: Final Gate 통과 후 JPG/JSON을 내보냅니다. 시험용 출력은 manifest에 `pilot`, 본작업 출력은 `production`으로 구분됩니다.
+7. 팀 검수 결과는 **팀 검수 · 복원**에서 ZIP으로 교환하고 충돌을 해결합니다.
+8. **통계 · 모델 평가**에서 작업 현황, GPT↔Human 지표, Golden Dataset, Baseline/Retrained 모델 평가를 확인합니다.
 
 처음부터 시험할 데이터가 없다면:
 

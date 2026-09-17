@@ -28,6 +28,15 @@ jobs:
       - run: python -m ruff format --check .
       - run: python -m pytest -q
       - run: python -m llm_change_tool --self-test
+      - name: Capture native Windows UI with synthetic data
+        if: runner.os == 'Windows'
+        run: python scripts/capture_ui.py
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Windows'
+        with:
+          name: UI-preview-Windows
+          path: artifacts/ui/
+          retention-days: 14
   windows-portable:
     needs: test
     runs-on: windows-latest

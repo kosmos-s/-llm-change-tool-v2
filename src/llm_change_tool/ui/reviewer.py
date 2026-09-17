@@ -1,13 +1,13 @@
 import json
 
 from PIL import ImageChops
-from PySide6.QtCore import QTimer
-from PySide6.QtGui import QImage, QKeySequence, QShortcut
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QColor, QImage, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QHBoxLayout,
-    QLabel,
+    QHeaderView,
     QLineEdit,
     QMessageBox,
     QPushButton,
@@ -22,8 +22,19 @@ from PySide6.QtWidgets import (
 from llm_change_tool.core.datasets import sample_images
 from llm_change_tool.core.labels import FIELDS
 from llm_change_tool.core.reviews import review_history, review_queue, save_review, undo_review
+from llm_change_tool.ui.components import STATES, Foldout, card, role, text_label, tone
 from llm_change_tool.ui.image_view import ImageView
 from llm_change_tool.ui.tasks import Task
+
+SIGNALS = {
+    "change_mismatch": "변화 여부 불일치",
+    "detail_mismatch": "세부 라벨 불일치",
+    "low_confidence": "낮은 신뢰도",
+    "review_required": "AI가 검수 요청",
+    "malformed_output": "응답 형식 오류",
+    "api_error": "AI 호출 오류",
+    "pending": "분석 대기",
+}
 
 
 class ReviewWidget(QWidget):
@@ -38,49 +49,63 @@ class ReviewWidget(QWidget):
         self.task = None
         self.images = None
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
         top = QHBoxLayout()
+        top.addWidget(text_label("검수 목록", "muted"))
         self.filter = QComboBox()
         for title, value in [
-            ("전체", "all"),
-            ("미검수", "unreviewed"),
-            ("보류", "deferred"),
-            ("필수 검수", "required"),
+            ("전체 항목", "all"),
+            ("미검수 항목", "unreviewed"),
+            ("보류 항목", "deferred"),
+            ("필수 검수 항목", "required"),
         ]:
             self.filter.addItem(title, value)
         self.filter.currentIndexChanged.connect(self.reload)
         top.addWidget(self.filter)
         self.reviewer = QLineEdit()
-        self.reviewer.setPlaceholderText("검수자 이름 (필수)")
+        self.reviewer.setPlaceholderText("검수자 이름을 입력하세요")
+        self.reviewer.setAccessibleName("검수자 이름")
+        self.reviewer.setMaximumWidth(240)
         top.addWidget(self.reviewer)
         self.auto = QCheckBox("자동 임시 저장")
+        self.auto.setToolTip(
+            "입력 후 잠시 멈추면 초안을 저장합니다. 완료 처리는 ‘저장’을 눌러 주세요."
+        )
         self.auto.setChecked(True)
         top.addWidget(self.auto)
-        self.progress = QLabel("Compare 후 검수 목록이 표시됩니다.")
-        top.addWidget(self.progress, 1)
+        top.addStretch()
+        self.progress = text_label("항목 없음", "badge")
+        top.addWidget(self.progress)
         layout.addLayout(top)
-        self.identity = QLabel()
-        self.identity.setWordWrap(True)
+        self.identity = text_label(
+            "AI 분석 후 ‘비교하고 검수하기’를 눌러 검수 목록을 만드세요.", "muted"
+        )
+        self.identity.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(self.identity)
         splitter = QSplitter()
-        viewer = QWidget()
-        vl = QVBoxLayout(viewer)
+        splitter.setChildrenCollapsible(False)
+        splitter.setHandleWidth(12)
+        viewer, vl = card("시점 비교", "휠로 확대 · 드래그로 이동 · 두 이미지가 함께 움직입니다.")
+        viewer.setMinimumWidth(300)
         titles = QHBoxLayout()
-        titles.addWidget(QLabel("T1 · 과거"))
-        titles.addWidget(QLabel("T2 · 현재"))
+        titles.addWidget(text_label("T1  과거 영상", "eyebrow"), 1)
+        titles.addWidget(text_label("T2  현재 영상", "eyebrow"), 1)
         vl.addLayout(titles)
         pair = QHBoxLayout()
-        self.left = ImageView()
-        self.right = ImageView()
-        self.left.peer = self.right
-        self.right.peer = self.left
-        pair.addWidget(self.left)
-        pair.addWidget(self.right)
-        vl.addLayout(pair)
+        self.left, self.right = ImageView(), ImageView()
+        self.left.placeholder = "T1 · 과거 영상\n검수 항목을 선택하세요"
+        self.right.placeholder = "T2 · 현재 영상\n검수 항목을 선택하세요"
+        self.left.peer, self.right.peer = self.right, self.left
+        pair.addWidget(self.left, 1)
+        pair.addWidget(self.right, 1)
+        vl.addLayout(pair, 1)
         controls = QHBoxLayout()
-        for name, fn in [("화면 맞춤", self.left.fit), ("100%", self.left.actual)]:
+        for name, fn in [("화면 맞춤 · F", self.left.fit), ("100%", self.left.actual)]:
             button = QPushButton(name)
             button.clicked.connect(fn)
             controls.addWidget(button)
+        controls.addStretch()
         self.diff = QCheckBox("차이 영상")
         self.diff.toggled.connect(self.show_images)
         controls.addWidget(self.diff)
@@ -89,54 +114,87 @@ class ReviewWidget(QWidget):
         controls.addWidget(self.flicker)
         vl.addLayout(controls)
         splitter.addWidget(viewer)
-        panel = QWidget()
-        pl = QVBoxLayout(panel)
+        panel, pl = card("최종 라벨 확정")
+        self.label_heading = pl.itemAt(0).widget()
+        panel.setMinimumWidth(386)
         self.labels = QTableWidget(len(FIELDS), 4)
         self.labels.setHorizontalHeaderLabels(["라벨", "원본", "AI", "최종"])
+        self.labels.verticalHeader().hide()
+        self.labels.verticalHeader().setDefaultSectionSize(32)
+        self.labels.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.labels.setShowGrid(False)
+        self.labels.setAlternatingRowColors(True)
+        self.labels.setMinimumHeight(120)
         self.boxes = {}
-        for i, f in enumerate(FIELDS):
-            self.labels.setItem(i, 0, QTableWidgetItem(f["title"]))
+        for i, field in enumerate(FIELDS):
+            item = QTableWidgetItem(field["title"])
+            item.setToolTip(field["key"])
+            self.labels.setItem(i, 0, item)
             box = QCheckBox()
-            box.setEnabled("fixed" not in f)
+            box.setEnabled("fixed" not in field)
+            box.setAccessibleName(field["title"] + " 최종 라벨")
+            box.setToolTip(
+                "최신 가이드라인에서 제외된 항목입니다."
+                if "fixed" in field
+                else field["title"] + "의 변화 여부"
+            )
             box.toggled.connect(self.changed)
-            self.labels.setCellWidget(i, 3, box)
-            self.boxes[f["key"]] = box
-        self.labels.setColumnWidth(0, 155)
+            container = QWidget()
+            centered = QHBoxLayout(container)
+            centered.setContentsMargins(0, 0, 0, 0)
+            centered.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            centered.addWidget(box)
+            self.labels.setCellWidget(i, 3, container)
+            self.boxes[field["key"]] = box
         for i in (1, 2, 3):
-            self.labels.setColumnWidth(i, 45)
-        self.labels.setMinimumWidth(340)
+            self.labels.setColumnWidth(i, 51)
         self.labels.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        pl.addWidget(self.labels)
-        self.ai_reason = QLabel()
-        self.ai_reason.setWordWrap(True)
-        pl.addWidget(self.ai_reason)
+        pl.addWidget(self.labels, 1)
+        self.ai_reason = text_label("AI 분석 결과가 여기에 표시됩니다.", "muted")
+        self.ai_reason.setMaximumHeight(90)
+        notes = QWidget()
+        note_layout = QVBoxLayout(notes)
+        note_layout.setContentsMargins(0, 0, 0, 0)
+        note_layout.addWidget(self.ai_reason)
         self.reason = QTextEdit()
-        self.reason.setPlaceholderText("검수 근거")
+        self.reason.setPlaceholderText("최종 판단의 근거를 기록하세요.")
+        self.reason.setAccessibleName("검수 근거")
+        self.reason.setMinimumHeight(65)
         self.reason.setMaximumHeight(90)
         self.reason.textChanged.connect(self.changed)
-        pl.addWidget(self.reason)
-        history = QPushButton("검수 이력")
-        history.clicked.connect(self.history)
-        pl.addWidget(history)
+        note_layout.addWidget(self.reason)
+        self.notes = Foldout("AI 판단 근거 · 검수 메모", notes)
+        pl.addWidget(self.notes)
         splitter.addWidget(panel)
-        splitter.setSizes([850, 360])
+        splitter.setSizes([780, 410])
         layout.addWidget(splitter, 1)
+        self.signals = text_label("")
+        self.signals.hide()
+        layout.addWidget(self.signals)
         nav = QHBoxLayout()
         self.buttons = []
-        for title, fn in [
-            ("이전", lambda: self.move(-1)),
-            ("다음", lambda: self.move(1)),
-            ("보류", lambda: self.save("DEFERRED", True)),
-            ("저장", lambda: self.save()),
-            ("저장 후 다음", lambda: self.save("DONE", True)),
-            ("Undo", self.undo),
+        for title, fn, hint in [
+            ("← 이전", lambda: self.move(-1), "Alt+Left"),
+            ("다음 →", lambda: self.move(1), "Alt+Right"),
+            ("보류", lambda: self.save("DEFERRED", True), "나중에 다시 검수합니다."),
+            ("되돌리기", self.undo, "Ctrl+Z · 이전 검수 기록으로 복원"),
+            ("이력", self.history, "검수자와 수정 기록 확인"),
+            ("저장", lambda: self.save(), "Ctrl+S · 검수 완료"),
+            ("저장 후 다음  →", lambda: self.save("DONE", True), "Ctrl+Enter"),
         ]:
+            if title == "저장":
+                nav.addStretch()
             button = QPushButton(title)
             button.clicked.connect(fn)
+            button.setToolTip(hint)
+            if title.startswith("저장 후"):
+                role(button, "primary")
             nav.addWidget(button)
             self.buttons.append(button)
         layout.addLayout(nav)
-        self.status = QLabel("")
+        self.status = text_label(
+            "자동 저장은 초안입니다. ‘저장’을 눌러 검수를 완료하세요.", "muted"
+        )
         layout.addWidget(self.status)
         self.timer = QTimer(self)
         self.timer.setSingleShot(True)
@@ -156,6 +214,7 @@ class ReviewWidget(QWidget):
         ]:
             shortcut = QShortcut(QKeySequence(key), self)
             shortcut.activated.connect(fn)
+        self.load_current()
 
     def bind(self, project, run_id):
         if self.task and self.task.isRunning():
@@ -204,40 +263,70 @@ class ReviewWidget(QWidget):
         self.loading = True
         for button in self.buttons:
             button.setEnabled(bool(self.items))
+        self.labels.setEnabled(bool(self.items))
+        self.reason.setEnabled(bool(self.items))
         if not self.items:
             self.identity.setText("해당 조건의 검수 항목이 없습니다.")
             self.images = None
             self.left.scene().clear()
             self.right.scene().clear()
             self.ai_reason.clear()
+            self.label_heading.setText("최종 라벨 확정")
             self.reason.clear()
             for box in self.boxes.values():
                 box.setChecked(False)
-            self.progress.setText("0 / 0")
+            self.progress.setText("항목 없음")
+            self.signals.hide()
+            for i in range(len(FIELDS)):
+                for col in (1, 2):
+                    self.labels.setItem(i, col, QTableWidgetItem("—"))
+                self.labels.item(i, 0).setBackground(QColor("#ffffff"))
             self.loading = False
             self.dirty = False
             return
         sample = self.items[self.index]
         self.identity.setText(sample["logical_key"])
         self.progress.setText(
-            f"{self.index + 1} / {len(self.items)} · {sample['review_state'] or '미검수'}"
+            f"{self.index + 1} / {len(self.items)} · {STATES.get(sample['review_state'], '미검수')}"
         )
         original = json.loads(sample["original_labels"])
         prediction = json.loads(sample["prediction"]) if sample["prediction"] else None
         final = json.loads(sample["reviewed_labels"]) if sample["reviewed_labels"] else original
         for i, f in enumerate(FIELDS):
-            self.labels.setItem(i, 1, QTableWidgetItem(str(original[f["key"]])))
-            self.labels.setItem(
-                i, 2, QTableWidgetItem(str(prediction["labels"][f["key"]]) if prediction else "—")
+            different = (
+                prediction is not None and original[f["key"]] != prediction["labels"][f["key"]]
             )
+            self.labels.item(i, 0).setBackground(QColor("#fff2d5" if different else "#ffffff"))
+            for col, value in [
+                (1, original[f["key"]]),
+                (2, prediction["labels"][f["key"]] if prediction else None),
+            ]:
+                item = QTableWidgetItem("변화" if value else "없음" if value is not None else "—")
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                item.setForeground(QColor("#126b65" if value else "#6b7b86"))
+                if different:
+                    item.setBackground(QColor("#fff2d5"))
+                self.labels.setItem(i, col, item)
             self.boxes[f["key"]].setChecked(bool(f.get("fixed", final[f["key"]])))
+        self.label_heading.setText(
+            f"최종 라벨 · AI 신뢰도 {prediction['confidence']:.0%}"
+            if prediction
+            else "최종 라벨 · AI 결과 없음"
+        )
         self.reason.setPlainText(sample["reviewed_reason"] or "")
         self.ai_reason.setText(
-            f"AI 신뢰도 {prediction['confidence']:.2f}\n{prediction['reason']}"
+            f"AI 신뢰도 {prediction['confidence']:.0%} · {prediction['reason']}"
             if prediction
             else "AI 결과 없음"
         )
-        self.status.setText("신호: " + sample["signals"])
+        self.ai_reason.setToolTip(prediction["reason"] if prediction else "AI 결과 없음")
+        flags = json.loads(sample["signals"])
+        self.signals.setText(
+            "확인할 내용 · " + "  /  ".join(SIGNALS.get(flag, flag) for flag in flags)
+        )
+        tone(self.signals, "warning" if flags else "info")
+        self.signals.setVisible(bool(flags))
+        self.status.setText("자동 저장은 초안입니다. ‘저장’을 눌러 검수를 완료하세요.")
         self.dirty = False
         self.loading = False
         self.setEnabled(False)
@@ -311,7 +400,14 @@ class ReviewWidget(QWidget):
             )
             self.dirty = False
             self.timer.stop()
-            self.status.setText(f"{state} 저장 완료 · revision {revision}")
+            self.loading = True
+            for key, box in self.boxes.items():
+                box.setChecked(bool(labels[key]))
+            self.loading = False
+            self.status.setText(f"{STATES.get(state, state)} · 이력 #{revision}")
+            self.progress.setText(
+                f"{self.index + 1} / {len(self.items)} · {STATES.get(state, state)}"
+            )
             if advance:
                 self.move(1)
             return True
